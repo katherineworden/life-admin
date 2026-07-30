@@ -425,9 +425,19 @@ async function refresh() { await loadAll(); render(); }
 function render() {
   if (!S.session) return renderLogin();
   if (!S.me) {
-    app.innerHTML = `<div class="login"><h1>🏠</h1><p>Signed in as ${esc(S.session.user.email)}, but that email isn't in the people list.</p></div>`;
+    // First load after a magic link can query before the token attaches — retry once.
+    if (!S._retried) {
+      S._retried = true;
+      app.innerHTML = `<div class="login"><h1>🏠</h1><p>Signing you in…</p></div>`;
+      setTimeout(refresh, 500);
+      return;
+    }
+    app.innerHTML = `<div class="login"><h1>🏠</h1>
+      <p>Signed in as ${esc(S.session.user.email)}, but couldn't load your profile.</p>
+      <button class="act primary" onclick="location.reload()">Try again</button></div>`;
     return;
   }
+  S._retried = false;
   app.innerHTML = `
     <header><h1>🏠 Life Admin</h1>
       <span class="who">Hi <b>${esc(S.me.name)}</b> · <span class="marbles">${balance(S.me.id)} ●</span></span>
@@ -462,7 +472,9 @@ function renderLogin() {
   S.session = data.session;
   db.auth.onAuthStateChange((_e, sess) => {
     const had = !!S.session; S.session = sess;
-    if (!had && sess) refresh();
+    // defer: calling the client synchronously inside this callback can run
+    // queries before the new token is attached
+    if (!had && sess) setTimeout(refresh, 0);
   });
   if (S.session) await loadAll();
   render();
