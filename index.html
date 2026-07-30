@@ -1,0 +1,459 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Life Admin</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏠</text></svg>">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<style>
+  :root {
+    --bg: #f6f5f2; --card: #ffffff; --ink: #1a1a1a; --muted: #71717a;
+    --line: #e4e4e7; --accent: #0d7a5f; --accent-ink: #ffffff;
+    --warn: #b45309; --danger: #b91c1c; --chip: #f4f4f5;
+    --marble: #7c3aed; --shadow: 0 1px 3px rgba(0,0,0,.07);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #17171a; --card: #202024; --ink: #ececef; --muted: #9d9da6;
+      --line: #303036; --accent: #34c39a; --accent-ink: #0c211b;
+      --warn: #f59e0b; --danger: #f87171; --chip: #2a2a30;
+      --marble: #a78bfa; --shadow: none;
+    }
+  }
+  * { box-sizing: border-box; margin: 0; }
+  body {
+    background: var(--bg); color: var(--ink);
+    font: 16px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    padding-bottom: calc(64px + env(safe-area-inset-bottom));
+  }
+  header {
+    display: flex; align-items: center; gap: 10px;
+    padding: 14px 16px 10px; max-width: 640px; margin: 0 auto;
+  }
+  header h1 { font-size: 20px; flex: 1; }
+  .who { font-size: 14px; color: var(--muted); }
+  .who b { color: var(--ink); }
+  main { max-width: 640px; margin: 0 auto; padding: 0 12px; }
+  nav {
+    position: fixed; bottom: 0; left: 0; right: 0; display: flex;
+    background: var(--card); border-top: 1px solid var(--line);
+    padding-bottom: env(safe-area-inset-bottom); z-index: 5;
+  }
+  nav button {
+    flex: 1; padding: 12px 0 10px; border: 0; background: none; color: var(--muted);
+    font: inherit; font-size: 13px; cursor: pointer;
+  }
+  nav button.on { color: var(--accent); font-weight: 600; }
+  .card {
+    background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+    padding: 12px 14px; margin: 10px 0; box-shadow: var(--shadow);
+  }
+  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .04em;
+       color: var(--muted); margin: 18px 4px 4px; }
+  .row { display: flex; align-items: center; gap: 10px; padding: 9px 0; }
+  .row + .row { border-top: 1px solid var(--line); }
+  .row .name { flex: 1; min-width: 0; }
+  .row .sub { font-size: 12.5px; color: var(--muted); }
+  .chip {
+    font-size: 11.5px; padding: 2px 8px; border-radius: 99px;
+    background: var(--chip); color: var(--muted); white-space: nowrap;
+  }
+  .chip.cat-finance { color: var(--warn); }
+  .chip.cat-health { color: var(--danger); }
+  .must { color: var(--warn); font-weight: 700; }
+  button.act {
+    border: 1px solid var(--line); background: var(--card); color: var(--ink);
+    border-radius: 9px; padding: 6px 12px; font: inherit; font-size: 14px; cursor: pointer;
+  }
+  button.act.primary { background: var(--accent); color: var(--accent-ink); border-color: transparent; font-weight: 600; }
+  button.act.ghost { color: var(--muted); }
+  button.act:disabled { opacity: .45; cursor: default; }
+  .done-name { text-decoration: line-through; color: var(--muted); }
+  .marbles { color: var(--marble); font-weight: 700; }
+  .balances { display: flex; gap: 10px; }
+  .balances .card { flex: 1; text-align: center; margin: 10px 0 0; }
+  .balances .n { font-size: 28px; font-weight: 700; color: var(--marble); }
+  .empty { color: var(--muted); text-align: center; padding: 22px 0; }
+  .toast {
+    position: fixed; left: 50%; transform: translateX(-50%); bottom: 84px;
+    background: var(--ink); color: var(--bg); padding: 9px 16px; border-radius: 99px;
+    font-size: 14px; opacity: 0; transition: opacity .25s; pointer-events: none; z-index: 20;
+  }
+  .toast.show { opacity: 1; }
+  dialog {
+    border: 1px solid var(--line); border-radius: 14px; background: var(--card);
+    color: var(--ink); width: min(94vw, 480px); padding: 16px;
+  }
+  dialog::backdrop { background: rgba(0,0,0,.45); }
+  dialog h3 { margin-bottom: 10px; font-size: 17px; }
+  label { display: block; font-size: 13px; color: var(--muted); margin: 10px 0 3px; }
+  input, select {
+    width: 100%; padding: 9px 10px; border: 1px solid var(--line); border-radius: 9px;
+    background: var(--bg); color: var(--ink); font: inherit;
+  }
+  .dlg-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px; }
+  .login { max-width: 380px; margin: 14vh auto 0; text-align: center; padding: 0 20px; }
+  .login h1 { font-size: 26px; margin-bottom: 6px; }
+  .login p { color: var(--muted); margin-bottom: 18px; }
+  .daycol { margin: 10px 0; }
+  .daycol .dh { font-size: 13px; font-weight: 600; margin: 0 4px 2px; }
+  .daycol .dh span { color: var(--muted); font-weight: 400; }
+  .proj { opacity: .62; }
+  .swapline { font-size: 12.5px; color: var(--muted); margin: 6px 4px; }
+</style>
+</head>
+<body>
+<div id="app"></div>
+<div class="toast" id="toast"></div>
+<script>
+const SUPABASE_URL = "https://tsbwrwrepxqtakpgcxqv.supabase.co";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRzYndyd3JlcHhxdGFrcGdjeHF2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODU0NDQxODYsImV4cCI6MjEwMTAyMDE4Nn0.3o-RaMUeOFbI7sE9UffIEdPAzz9FxQsnFjFJuWnR3WU";
+const db = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+const $ = (h) => { const d = document.createElement("div"); d.innerHTML = h; return d.firstElementChild; };
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const app = document.getElementById("app");
+const isoLocal = (d) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+const today = () => isoLocal(new Date());
+const addDays = (iso, n) => { const d = new Date(iso + "T12:00:00"); d.setDate(d.getDate() + n); return isoLocal(d); };
+const DAYFMT = new Intl.DateTimeFormat(undefined, { weekday: "short", month: "short", day: "numeric" });
+
+let S = { session: null, me: null, people: [], tasks: [], instances: [], store: [],
+          balances: [], swapsToday: [], redemptions: [], view: "today" };
+
+function toast(msg) {
+  const t = document.getElementById("toast");
+  t.textContent = msg; t.classList.add("show");
+  clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove("show"), 2200);
+}
+
+// ---------- data ----------
+async function loadAll() {
+  const [people, tasks, instances, store, balances, swaps, reds] = await Promise.all([
+    db.from("people").select("*"),
+    db.from("tasks").select("*").eq("active", true),
+    db.from("task_instances").select("*").order("due_date", { ascending: false }).limit(600),
+    db.from("store_items").select("*").eq("active", true).order("price"),
+    db.from("balances").select("*"),
+    db.from("swaps").select("*").eq("swap_date", today()),
+    db.from("redemptions").select("*, store_items(name,price)").order("created_at", { ascending: false }).limit(10),
+  ]);
+  S.people = people.data ?? []; S.tasks = tasks.data ?? []; S.instances = instances.data ?? [];
+  S.store = store.data ?? []; S.balances = balances.data ?? []; S.swapsToday = swaps.data ?? [];
+  S.redemptions = reds.data ?? [];
+  S.me = S.people.find(p => p.email === S.session.user.email) ?? null;
+}
+const task = (id) => S.tasks.find(t => t.id === id);
+const personName = (id) => S.people.find(p => p.id === id)?.name ?? id ?? "either";
+const balance = (id) => S.balances.find(b => b.person === id)?.marbles ?? 0;
+const lastScheduled = () => {
+  const m = {};
+  for (const i of S.instances) if (!m[i.task_id] || i.due_date > m[i.task_id]) m[i.task_id] = i.due_date;
+  return m;
+};
+function nextFixed(t, from) {
+  if (!t.recur_months) return null;
+  let d = new Date(from + "T12:00:00");
+  if (t.recur_day != null) {
+    for (let k = 0; k < 25; k++) {
+      const y = d.getFullYear(), m = d.getMonth();
+      const lastDom = new Date(y, m + 1, 0).getDate();
+      const cand = new Date(y, m, t.recur_day === -1 ? lastDom : Math.min(t.recur_day, lastDom), 12);
+      if (isoLocal(cand) >= from) return isoLocal(cand);
+      d = new Date(y, m + t.recur_months, 1, 12);
+    }
+  } else if (t.anchor_date) {
+    let n = new Date(t.anchor_date + "T12:00:00");
+    while (isoLocal(n) < from) n = new Date(n.getFullYear(), n.getMonth() + t.recur_months, n.getDate(), 12);
+    return isoLocal(n);
+  }
+  return null;
+}
+
+// ---------- actions ----------
+async function markDone(inst) {
+  const t = task(inst.task_id);
+  const { error } = await db.from("task_instances")
+    .update({ status: "done", done_by: S.me.id, done_at: new Date().toISOString() })
+    .eq("id", inst.id).eq("status", "pending");
+  if (error) return toast(error.message);
+  const earn = t?.minutes ?? 5;
+  await db.from("marble_ledger").insert({ person: S.me.id, delta: earn, reason: "task", instance_id: inst.id });
+  toast(`Done! +${earn} marbles`);
+  await refresh();
+}
+async function toggleMust(inst) {
+  const { error } = await db.from("task_instances").update({ must_do: !inst.must_do }).eq("id", inst.id);
+  if (error) return toast(error.message); await refresh();
+}
+function swapCandidates(inst) {
+  const cur = task(inst.task_id);
+  const scheduledToday = new Set(S.instances.filter(i => i.due_date === today() && i.status !== "swapped_out").map(i => i.task_id));
+  return S.tasks.filter(t =>
+    t.every_days && t.id !== cur.id && !scheduledToday.has(t.id) &&
+    (t.category === cur.category || Math.abs(t.minutes - cur.minutes) <= 10));
+}
+async function doSwap(inst, inTaskId) {
+  const { error: e1 } = await db.from("swaps").insert(
+    { person: S.me.id, swap_date: today(), out_instance: inst.id, in_task: inTaskId });
+  if (e1) return toast(e1.message);
+  await db.from("task_instances").update({ status: "swapped_out" }).eq("id", inst.id);
+  await db.from("task_instances").insert({ task_id: inTaskId, due_date: today() });
+  // the swapped-out task comes back tomorrow
+  await db.from("task_instances").insert({ task_id: inst.task_id, due_date: addDays(today(), 1) })
+    .then(() => {}, () => {});
+  toast(`Swapped in: ${task(inTaskId).name}`);
+  await refresh();
+}
+async function redeem(item) {
+  if (balance(S.me.id) < item.price) return toast("Not enough marbles yet!");
+  const { data, error } = await db.from("redemptions")
+    .insert({ person: S.me.id, item_id: item.id }).select().single();
+  if (error) return toast(error.message);
+  await db.from("marble_ledger").insert(
+    { person: S.me.id, delta: -item.price, reason: "redeem", store_item: item.id });
+  toast(`Redeemed: ${item.name} 🎉`);
+  await refresh();
+}
+
+// ---------- views ----------
+function instRow(inst, { swappable = true } = {}) {
+  const t = task(inst.task_id); if (!t) return "";
+  const done = inst.status === "done";
+  const mySwapUsed = S.swapsToday.some(s => s.person === S.me.id);
+  const canSwap = swappable && !done && !inst.must_do && t.every_days && !mySwapUsed;
+  return `<div class="row" data-inst="${inst.id}">
+    <button class="act ghost must-btn" title="toggle must-do">${inst.must_do ? "<span class='must'>★</span>" : "☆"}</button>
+    <div class="name">
+      <div class="${done ? "done-name" : ""}">${esc(t.name)}</div>
+      <div class="sub">${t.minutes} min · ${esc(personName(t.default_assignee))}${done ? ` · done by ${esc(personName(inst.done_by))}` : ""}${inst.due_date < today() ? ` · <b>due ${inst.due_date}</b>` : ""}</div>
+    </div>
+    <span class="chip cat-${t.category}">${esc(t.category)}</span>
+    ${canSwap ? `<button class="act swap-btn">⇄</button>` : ""}
+    ${done ? "" : `<button class="act primary done-btn">Done</button>`}
+  </div>`;
+}
+function bindInstRows(root, list) {
+  root.querySelectorAll("[data-inst]").forEach(el => {
+    const inst = list.find(i => i.id === +el.dataset.inst);
+    el.querySelector(".done-btn")?.addEventListener("click", () => markDone(inst));
+    el.querySelector(".must-btn")?.addEventListener("click", () => toggleMust(inst));
+    el.querySelector(".swap-btn")?.addEventListener("click", () => openSwap(inst));
+  });
+}
+
+function viewToday(root) {
+  const td = today();
+  const pend = S.instances.filter(i => i.status === "pending" || (i.status === "done" && i.due_date === td));
+  const mustOnes = pend.filter(i => i.due_date <= td && (i.must_do || !task(i.task_id)?.every_days));
+  const picks = pend.filter(i => i.due_date === td && task(i.task_id)?.every_days && !i.must_do);
+  const overdue = pend.filter(i => i.due_date < td && task(i.task_id)?.every_days && !i.must_do && i.status === "pending");
+  const fixedToday = S.tasks.filter(t => t.recur_months && nextFixed(t, td) === td &&
+    !S.instances.some(i => i.task_id === t.id && i.due_date === td));
+  let h = "";
+  if (mustOnes.length || fixedToday.length) {
+    h += `<h2>Must-do & fixed</h2><div class="card">` +
+      fixedToday.map(t => `<div class="row"><span class="must">★</span><div class="name"><div>${esc(t.name)}</div><div class="sub">${esc(personName(t.default_assignee))} · fixed</div></div><span class="chip cat-${t.category}">${esc(t.category)}</span><button class="act primary fixed-done" data-task="${esc(t.id)}">Done</button></div>`).join("") +
+      mustOnes.map(i => instRow(i, { swappable: false })).join("") + `</div>`;
+  }
+  h += `<h2>Today's picks</h2><div class="card">${picks.length ? picks.map(i => instRow(i)).join("") : `<div class="empty">Nothing picked yet — the 8am run adds them.</div>`}</div>`;
+  if (overdue.length) h += `<h2>Catching up</h2><div class="card">${overdue.map(i => instRow(i)).join("")}</div>`;
+  const mySwapUsed = S.swapsToday.some(s => s.person === S.me.id);
+  h += `<div class="swapline">${mySwapUsed ? "You've used today's swap." : "⇄ = swap a task you don't feel like doing (1/day, similar effort or same category)."}</div>`;
+  root.innerHTML = h;
+  bindInstRows(root, S.instances);
+  root.querySelectorAll(".fixed-done").forEach(b => b.addEventListener("click", async () => {
+    const t = task(b.dataset.task);
+    const { data, error } = await db.from("task_instances")
+      .insert({ task_id: t.id, due_date: today(), status: "done", done_by: S.me.id, done_at: new Date().toISOString() })
+      .select().single();
+    if (error) return toast(error.message);
+    await db.from("marble_ledger").insert({ person: S.me.id, delta: t.minutes, reason: "task", instance_id: data.id });
+    toast(`Done! +${t.minutes} marbles`); await refresh();
+  }));
+}
+
+function viewWeek(root) {
+  const last = lastScheduled(); const td = today();
+  let h = "";
+  for (let d = 0; d < 7; d++) {
+    const day = addDays(td, d);
+    const sched = S.instances.filter(i => i.due_date === day && i.status === "pending");
+    const fixed = S.tasks.filter(t => t.recur_months && nextFixed(t, td) === day);
+    const proj = d === 0 ? [] : S.tasks.filter(t => t.every_days &&
+      !S.instances.some(i => i.task_id === t.id && i.due_date >= td && i.status === "pending") &&
+      (last[t.id] ? addDays(last[t.id], t.every_days) === day
+                  : d === 1 /* never-scheduled bubble up soon */));
+    if (!sched.length && !fixed.length && !proj.length) continue;
+    h += `<div class="daycol"><div class="dh">${d === 0 ? "Today" : DAYFMT.format(new Date(day + "T12:00:00"))} <span>· ${day}</span></div><div class="card">`;
+    h += fixed.map(t => `<div class="row"><span class="must">★</span><div class="name"><div>${esc(t.name)}</div><div class="sub">${esc(personName(t.default_assignee))} · fixed</div></div><span class="chip cat-${t.category}">${esc(t.category)}</span></div>`).join("");
+    h += sched.map(i => instRow(i, { swappable: i.due_date === td })).join("");
+    h += proj.map(t => `<div class="row proj"><div class="name"><div>${esc(t.name)}</div><div class="sub">projected · every ${t.every_days}d · ${esc(personName(t.default_assignee))}</div></div><span class="chip cat-${t.category}">${esc(t.category)}</span></div>`).join("");
+    h += `</div></div>`;
+  }
+  root.innerHTML = h || `<div class="empty">Quiet week ahead.</div>`;
+  bindInstRows(root, S.instances);
+}
+
+function viewPool(root) {
+  const last = lastScheduled();
+  const rot = S.tasks.filter(t => t.every_days).sort((a, b) => a.every_days - b.every_days);
+  const fix = S.tasks.filter(t => t.recur_months);
+  const mine = (t) => t.owner !== "shared" ? " · personal" : "";
+  root.innerHTML = `
+    <div style="display:flex;justify-content:flex-end;margin-top:10px">
+      <button class="act primary" id="addTask">+ Add task</button></div>
+    <h2>Rotating</h2><div class="card">${rot.map(t => `
+      <div class="row"><div class="name"><div>${esc(t.name)}</div>
+        <div class="sub">every ${t.every_days}d · ${t.minutes} min · ${esc(personName(t.default_assignee))}${mine(t)} · last: ${last[t.id] ?? "never"}</div></div>
+        <span class="chip cat-${t.category}">${esc(t.category)}</span>
+        <button class="act ghost del" data-id="${esc(t.id)}">✕</button></div>`).join("")}</div>
+    <h2>Fixed dates</h2><div class="card">${fix.map(t => `
+      <div class="row">${t.must_do ? `<span class="must">★</span>` : ""}<div class="name"><div>${esc(t.name)}</div>
+        <div class="sub">next: ${nextFixed(t, today()) ?? "?"} · ${esc(personName(t.default_assignee))}${mine(t)}</div></div>
+        <span class="chip cat-${t.category}">${esc(t.category)}</span></div>`).join("")}</div>`;
+  root.querySelector("#addTask").addEventListener("click", openAddTask);
+  root.querySelectorAll(".del").forEach(b => b.addEventListener("click", async () => {
+    if (!confirm("Retire this task from the rotation?")) return;
+    const { error } = await db.from("tasks").update({ active: false }).eq("id", b.dataset.id);
+    if (error) return toast(error.message); toast("Retired"); await refresh();
+  }));
+}
+
+function viewStore(root) {
+  const others = S.people.filter(p => p.id !== "shared");
+  root.innerHTML = `
+    <div class="balances">${others.map(p => `<div class="card"><div class="n">${balance(p.id)}</div><div class="sub">${esc(p.name)}'s marbles</div></div>`).join("")}</div>
+    <div style="display:flex;justify-content:flex-end;margin-top:12px">
+      <button class="act primary" id="addItem">+ Add reward</button></div>
+    <h2>Rewards</h2><div class="card">${S.store.length ? S.store.map(it => `
+      <div class="row"><div class="name"><div>${esc(it.name)}</div></div>
+        <span class="chip marbles">${it.price} ●</span>
+        <button class="act redeem" data-id="${it.id}" ${balance(S.me.id) < it.price ? "disabled" : ""}>Redeem</button></div>`).join("")
+      : `<div class="empty">No rewards yet — add the first one!</div>`}</div>
+    <h2>Recent redemptions</h2><div class="card">${S.redemptions.length ? S.redemptions.map(r => `
+      <div class="row"><div class="name"><div>${esc(r.store_items?.name)}</div>
+        <div class="sub">${esc(personName(r.person))} · ${r.created_at.slice(0, 10)} · ${r.status}</div></div>
+        ${r.status === "claimed" && r.person !== S.me.id ? `<button class="act fulfill" data-id="${r.id}">Fulfilled ✓</button>` : ""}</div>`).join("")
+      : `<div class="empty">None yet.</div>`}</div>`;
+  root.querySelector("#addItem").addEventListener("click", openAddItem);
+  root.querySelectorAll(".redeem").forEach(b => b.addEventListener("click", () =>
+    redeem(S.store.find(i => i.id === +b.dataset.id))));
+  root.querySelectorAll(".fulfill").forEach(b => b.addEventListener("click", async () => {
+    await db.from("redemptions").update({ status: "fulfilled" }).eq("id", +b.dataset.id);
+    toast("Nice."); await refresh();
+  }));
+}
+
+// ---------- dialogs ----------
+function dialog(html) {
+  const d = $(`<dialog>${html}</dialog>`);
+  document.body.appendChild(d);
+  d.addEventListener("close", () => d.remove());
+  d.showModal(); return d;
+}
+function openSwap(inst) {
+  const cands = swapCandidates(inst);
+  const d = dialog(`<h3>Swap "${esc(task(inst.task_id).name)}"</h3>
+    <p class="sub" style="color:var(--muted);font-size:13px">It comes back tomorrow. Pick what you'd rather do today:</p>
+    <div style="max-height:50vh;overflow:auto">${cands.length ? cands.map(t => `
+      <div class="row"><div class="name"><div>${esc(t.name)}</div><div class="sub">${t.minutes} min</div></div>
+      <span class="chip cat-${t.category}">${esc(t.category)}</span>
+      <button class="act primary pick" data-id="${esc(t.id)}">This one</button></div>`).join("")
+      : `<div class="empty">No eligible swaps (same category or ±10 min).</div>`}</div>
+    <div class="dlg-actions"><button class="act" id="cancel">Cancel</button></div>`);
+  d.querySelector("#cancel").addEventListener("click", () => d.close());
+  d.querySelectorAll(".pick").forEach(b => b.addEventListener("click", async () => {
+    d.close(); await doSwap(inst, b.dataset.id);
+  }));
+}
+function openAddTask() {
+  const ppl = S.people.filter(p => p.id !== "shared");
+  const d = dialog(`<h3>Add task</h3>
+    <label>Name</label><input id="f-name" placeholder="e.g. Wipe down balcony furniture">
+    <label>Category</label><select id="f-cat"><option>chore</option><option>finance</option><option>health</option><option>personal</option></select>
+    <label>Repeat every (days)</label><input id="f-days" type="number" value="7" min="1">
+    <label>Minutes</label><input id="f-min" type="number" value="10" min="1">
+    <label>Usually done by</label><select id="f-who"><option value="">Either</option>${ppl.map(p => `<option value="${p.id}">${esc(p.name)}</option>`).join("")}</select>
+    <label>Visibility</label><select id="f-owner"><option value="shared">Shared — both see it</option><option value="${S.me.id}">Personal — only me</option></select>
+    <div class="dlg-actions"><button class="act" id="cancel">Cancel</button><button class="act primary" id="save">Add</button></div>`);
+  d.querySelector("#cancel").addEventListener("click", () => d.close());
+  d.querySelector("#save").addEventListener("click", async () => {
+    const name = d.querySelector("#f-name").value.trim(); if (!name) return;
+    const id = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 40) || "task";
+    const { error } = await db.from("tasks").insert({
+      id, name, category: d.querySelector("#f-cat").value,
+      every_days: +d.querySelector("#f-days").value || 7,
+      minutes: +d.querySelector("#f-min").value || 10,
+      default_assignee: d.querySelector("#f-who").value || null,
+      owner: d.querySelector("#f-owner").value, created_by: S.me.id });
+    if (error) return toast(error.message);
+    d.close(); toast("Added"); await refresh();
+  });
+}
+function openAddItem() {
+  const d = dialog(`<h3>Add reward</h3>
+    <label>Reward</label><input id="f-name" placeholder="e.g. Other person cooks tonight">
+    <label>Price (marbles — 1 ≈ 1 minute of chores)</label><input id="f-price" type="number" value="30" min="1">
+    <div class="dlg-actions"><button class="act" id="cancel">Cancel</button><button class="act primary" id="save">Add</button></div>`);
+  d.querySelector("#cancel").addEventListener("click", () => d.close());
+  d.querySelector("#save").addEventListener("click", async () => {
+    const name = d.querySelector("#f-name").value.trim(); if (!name) return;
+    const { error } = await db.from("store_items").insert(
+      { name, price: +d.querySelector("#f-price").value || 10, added_by: S.me.id });
+    if (error) return toast(error.message);
+    d.close(); toast("Added"); await refresh();
+  });
+}
+
+// ---------- shell ----------
+async function refresh() { await loadAll(); render(); }
+function render() {
+  if (!S.session) return renderLogin();
+  if (!S.me) {
+    app.innerHTML = `<div class="login"><h1>🏠</h1><p>Signed in as ${esc(S.session.user.email)}, but that email isn't in the people list.</p></div>`;
+    return;
+  }
+  app.innerHTML = `
+    <header><h1>🏠 Life Admin</h1>
+      <span class="who">Hi <b>${esc(S.me.name)}</b> · <span class="marbles">${balance(S.me.id)} ●</span></span>
+      <button class="act ghost" id="out">↩</button></header>
+    <main id="view"></main>
+    <nav>${["today", "week", "pool", "store"].map(v =>
+      `<button data-v="${v}" class="${S.view === v ? "on" : ""}">${{ today: "Today", week: "Week", pool: "All tasks", store: "Store" }[v]}</button>`).join("")}</nav>`;
+  document.getElementById("out").addEventListener("click", async () => { await db.auth.signOut(); location.reload(); });
+  document.querySelectorAll("nav button").forEach(b => b.addEventListener("click", () => { S.view = b.dataset.v; render(); }));
+  const root = document.getElementById("view");
+  ({ today: viewToday, week: viewWeek, pool: viewPool, store: viewStore })[S.view](root);
+}
+function renderLogin() {
+  app.innerHTML = `<div class="login"><h1>🏠 Life Admin</h1>
+    <p>Katherine &amp; Winston's chores, money admin, and marbles.</p>
+    <input id="email" type="email" placeholder="your email" autocomplete="email">
+    <div style="margin-top:10px"><button class="act primary" id="go" style="width:100%">Email me a magic link</button></div>
+    <p id="msg" style="margin-top:12px"></p></div>`;
+  document.getElementById("go").addEventListener("click", async () => {
+    const email = document.getElementById("email").value.trim();
+    if (!email) return;
+    const { error } = await db.auth.signInWithOtp({
+      email, options: { emailRedirectTo: location.origin + location.pathname, shouldCreateUser: false } });
+    document.getElementById("msg").textContent =
+      error ? (/signup/i.test(error.message) ? "That email isn't invited to this household." : error.message)
+            : "Check your email — the link signs you straight in.";
+  });
+}
+
+(async () => {
+  const { data } = await db.auth.getSession();
+  S.session = data.session;
+  db.auth.onAuthStateChange((_e, sess) => {
+    const had = !!S.session; S.session = sess;
+    if (!had && sess) refresh();
+  });
+  if (S.session) await loadAll();
+  render();
+})();
+</script>
+</body>
+</html>
