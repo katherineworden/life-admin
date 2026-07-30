@@ -96,6 +96,9 @@
   .login { max-width: 380px; margin: 14vh auto 0; text-align: center; padding: 0 20px; }
   .login h1 { font-size: 26px; margin-bottom: 6px; }
   .login p { color: var(--muted); margin-bottom: 18px; }
+  .pagehead { margin: 6px 4px 2px; }
+  .pagehead .date { font-size: 22px; font-weight: 700; }
+  .pagehead .sub { color: var(--muted); font-size: 14px; margin-top: 2px; }
   .daycol { margin: 10px 0; }
   .daycol .dh { font-size: 13px; font-weight: 600; margin: 0 4px 2px; }
   .daycol .dh span { color: var(--muted); font-weight: 400; }
@@ -251,7 +254,17 @@ function viewToday(root) {
   const overdue = pend.filter(i => i.due_date < td && task(i.task_id)?.every_days && !i.must_do && i.status === "pending");
   const fixedToday = S.tasks.filter(t => t.recur_months && nextFixed(t, td) === td &&
     !S.instances.some(i => i.task_id === t.id && i.due_date === td));
-  let h = "";
+  const open = pend.filter(i => i.status === "pending" && i.due_date <= td);
+  const mins = open.reduce((n, i) => n + (task(i.task_id)?.minutes ?? 0), 0) +
+               fixedToday.reduce((n, t) => n + t.minutes, 0);
+  const musts = mustOnes.filter(i => i.status === "pending").length + fixedToday.length;
+  const doneToday = S.instances.filter(i => i.status === "done" && i.due_date === td).length;
+  let h = `<div class="pagehead">
+    <div class="date">${new Intl.DateTimeFormat(undefined, { weekday: "long", month: "long", day: "numeric" }).format(new Date(td + "T12:00:00"))}</div>
+    <div class="sub">${open.length + fixedToday.length ?
+      `${open.length + fixedToday.length} to do · ~${mins} min${musts ? ` · ${musts} must-do${musts > 1 ? "s" : ""}` : ""}` :
+      "All clear"}${doneToday ? ` · ${doneToday} done ✓` : ""}</div>
+  </div>`;
   if (mustOnes.length || fixedToday.length) {
     h += `<h2>Must-do & fixed</h2><div class="card">` +
       fixedToday.map(t => `<div class="row"><span class="must">★</span><div class="name"><div>${esc(t.name)}</div><div class="sub">${esc(personName(t.default_assignee))} · fixed</div></div><span class="chip cat-${t.category}">${esc(t.category)}</span><button class="act primary fixed-done" data-task="${esc(t.id)}">Done</button></div>`).join("") +
