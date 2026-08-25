@@ -224,7 +224,7 @@ async function redeem(item) {
 function instRow(inst, { swappable = true } = {}) {
   const t = task(inst.task_id); if (!t) return "";
   const done = inst.status === "done";
-  const mySwapUsed = S.swapsToday.some(s => s.person === S.me.id);
+  const mySwapUsed = S.swapsToday.filter(s => s.person === S.me.id).length >= 2;
   const canSwap = swappable && !done && !inst.must_do && t.every_days && !mySwapUsed;
   return `<div class="row" data-inst="${inst.id}">
     <button class="act ghost must-btn" title="toggle must-do">${inst.must_do ? "<span class='must'>★</span>" : "☆"}</button>
@@ -249,7 +249,8 @@ function bindInstRows(root, list) {
 function viewToday(root) {
   const td = today();
   const pend = S.instances.filter(i => i.status === "pending" || (i.status === "done" && i.due_date === td));
-  const mustOnes = pend.filter(i => i.due_date <= td && (i.must_do || !task(i.task_id)?.every_days));
+  const mustOnes = pend.filter(i => i.due_date <= td && (i.must_do || !task(i.task_id)?.every_days)
+    && !task(i.task_id)?.one_time);
   const picks = pend.filter(i => i.due_date === td && task(i.task_id)?.every_days && !i.must_do);
   const overdue = pend.filter(i => i.due_date < td && task(i.task_id)?.every_days && !i.must_do && i.status === "pending");
   const fixedToday = S.tasks.filter(t => t.recur_months && nextFixed(t, td) === td &&
@@ -272,9 +273,16 @@ function viewToday(root) {
   }
   h += `<h2>Today's picks</h2><div class="card">${picks.length ? picks.map(i => instRow(i)).join("") : `<div class="empty">Nothing picked yet — the 8am run adds them.</div>`}</div>`;
   if (overdue.length) h += `<h2>Catching up</h2><div class="card">${overdue.map(i => instRow(i)).join("")}</div>`;
-  const mySwapUsed = S.swapsToday.some(s => s.person === S.me.id);
-  h += `<div class="swapline">${mySwapUsed ? "You've used today's swap." : "⇄ = swap a task you don't feel like doing (1/day, similar effort or same category)."}</div>`;
+  const extras = S.instances.filter(i => i.status === "done" && i.due_date === td && task(i.task_id)?.one_time);
+  if (extras.length) h += `<h2>Extra logged today</h2><div class="card">${extras.map(i => instRow(i, { swappable: false })).join("")}</div>`;
+  const mySwaps = S.swapsToday.filter(s => s.person === S.me.id).length;
+  h += `<div class="swapline">${mySwaps >= 2 ? "You've used today's swaps." : "⇄ = swap a task you don't feel like doing (2/day, similar effort or same category)."}</div>`;
+  h += `<div style="display:flex;gap:8px;justify-content:center;margin:12px 0 4px">
+    <button class="act" id="logOther">＋ Log something else</button>
+    <button class="act ghost" id="fbBtn">💬 Feedback</button></div>`;
   root.innerHTML = h;
+  root.querySelector("#logOther").addEventListener("click", openLogOther);
+  root.querySelector("#fbBtn").addEventListener("click", openFeedback);
   bindInstRows(root, S.instances);
   root.querySelectorAll(".fixed-done").forEach(b => b.addEventListener("click", async () => {
     const t = task(b.dataset.task);
@@ -315,7 +323,8 @@ function viewPool(root) {
   const fix = S.tasks.filter(t => t.recur_months);
   const mine = (t) => t.owner !== "shared" ? " · personal" : "";
   root.innerHTML = `
-    <div style="display:flex;justify-content:flex-end;margin-top:10px">
+    <div style="display:flex;gap:8px;align-items:center;margin-top:10px">
+      <input id="poolq" placeholder="🔍 Search tasks…" autocomplete="off" style="flex:1">
       <button class="act primary" id="addTask">+ Add task</button></div>
     <h2>Rotating</h2><div class="card">${rot.map(t => `
       <div class="row"><div class="name"><div>${esc(t.name)}</div>
@@ -327,6 +336,11 @@ function viewPool(root) {
         <div class="sub">next: ${nextFixed(t, today()) ?? "?"} · ${esc(personName(t.default_assignee))}${mine(t)}</div></div>
         <span class="chip cat-${t.category}">${esc(t.category)}</span></div>`).join("")}</div>`;
   root.querySelector("#addTask").addEventListener("click", openAddTask);
+  root.querySelector("#poolq").addEventListener("input", e => {
+    const q = e.target.value.trim().toLowerCase();
+    root.querySelectorAll(".card .row").forEach(r =>
+      r.style.display = !q || r.textContent.toLowerCase().includes(q) ? "" : "none");
+  });
   root.querySelectorAll(".del").forEach(b => b.addEventListener("click", async () => {
     if (!confirm("Retire this task from the rotation?")) return;
     const { error } = await db.from("tasks").update({ active: false }).eq("id", b.dataset.id);
@@ -380,6 +394,73 @@ function openSwap(inst) {
   d.querySelectorAll(".pick").forEach(b => b.addEventListener("click", async () => {
     d.close(); await doSwap(inst, b.dataset.id);
   }));
+}
+async function logTaskDone(t) {
+  // an already-scheduled pending instance today? complete that one instead
+  const existing = S.instances.find(i => i.task_id === t.id && i.due_date === today() && i.status === "pending");
+  if (existing) return markDone(existing);
+  if (S.instances.some(i => i.task_id === t.id && i.due_date === today() && i.status === "done"))
+    return toast("Already logged today.");
+  const { data, error } = await db.from("task_instances")
+    .insert({ task_id: t.id, due_date: today(), status: "done", done_by: S.me.id, done_at: new Date().toISOString() })
+    .select().single();
+  if (error) return toast(error.message);
+  await db.from("marble_ledger").insert({ person: S.me.id, delta: t.minutes, reason: "task", instance_id: data.id });
+  toast(`Logged! +${t.minutes} marbles`);
+  await refresh();
+}
+function openLogOther() {
+  const d = dialog(`<h3>Log something you did</h3>
+    <input id="q" placeholder="Search all tasks… (vacuum, trash, fridge…)" autocomplete="off">
+    <div id="results" style="max-height:38vh;overflow:auto;margin-top:6px"></div>
+    <label>Not in the list? Describe it</label><input id="adname" placeholder="e.g. Applied ant deterrent" autocomplete="off">
+    <label>Minutes it took</label><input id="admin" type="number" value="10" min="1">
+    <div class="dlg-actions"><button class="act" id="cancel">Cancel</button>
+      <button class="act primary" id="adsave">Log it (+marbles)</button></div>`);
+  const results = d.querySelector("#results");
+  const renderResults = (q) => {
+    const ql = q.trim().toLowerCase();
+    const hits = S.tasks.filter(t => !t.one_time && (!ql || t.name.toLowerCase().includes(ql))).slice(0, ql ? 20 : 8);
+    results.innerHTML = hits.map(t => `<div class="row"><div class="name"><div>${esc(t.name)}</div>
+      <div class="sub">${t.minutes} min${t.every_days ? ` · every ${t.every_days}d` : ""}</div></div>
+      <button class="act primary hit" data-id="${esc(t.id)}">Did this</button></div>`).join("")
+      || `<div class="empty">No match — describe it below instead.</div>`;
+    results.querySelectorAll(".hit").forEach(b => b.addEventListener("click", async () => {
+      d.close(); await logTaskDone(task(b.dataset.id));
+    }));
+  };
+  renderResults("");
+  d.querySelector("#q").addEventListener("input", e => renderResults(e.target.value));
+  d.querySelector("#cancel").addEventListener("click", () => d.close());
+  d.querySelector("#adsave").addEventListener("click", async () => {
+    const name = d.querySelector("#adname").value.trim(); if (!name) return toast("Describe what you did first.");
+    const mins = Math.max(1, +d.querySelector("#admin").value || 10);
+    const id = "adhoc-" + Date.now();
+    const { error } = await db.from("tasks").insert({
+      id, name, category: "chore", minutes: mins, one_time: true, owner: "shared", created_by: S.me.id });
+    if (error) return toast(error.message);
+    const { data, error: e2 } = await db.from("task_instances")
+      .insert({ task_id: id, due_date: today(), status: "done", done_by: S.me.id, done_at: new Date().toISOString() })
+      .select().single();
+    if (e2) return toast(e2.message);
+    await db.from("marble_ledger").insert({ person: S.me.id, delta: mins, reason: "task", instance_id: data.id });
+    d.close(); toast(`Logged! +${mins} marbles`); await refresh();
+  });
+}
+function openFeedback() {
+  const d = dialog(`<h3>Feedback / ideas</h3>
+    <p style="color:var(--muted);font-size:13px">Goes straight into the morning report — Claude and Katherine see it and can change how the app works.</p>
+    <label>What should work differently?</label>
+    <input id="fbtext" placeholder="e.g. let me snooze a task to the weekend" autocomplete="off">
+    <div class="dlg-actions"><button class="act" id="cancel">Cancel</button>
+      <button class="act primary" id="send">Send</button></div>`);
+  d.querySelector("#cancel").addEventListener("click", () => d.close());
+  d.querySelector("#send").addEventListener("click", async () => {
+    const text = d.querySelector("#fbtext").value.trim(); if (!text) return;
+    const { error } = await db.from("feedback").insert({ person: S.me.id, text });
+    if (error) return toast(error.message);
+    d.close(); toast("Sent — it'll be in tomorrow's morning report.");
+  });
 }
 function openAddTask() {
   const ppl = S.people.filter(p => p.id !== "shared");
