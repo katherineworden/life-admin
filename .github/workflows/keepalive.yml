@@ -1,0 +1,19 @@
+# Pings Supabase daily so the free-tier project never auto-pauses from
+# inactivity (it paused twice in Aug-Sep 2026, killing sign-in + reminders).
+# The anon key is already public in index.html, so no secret is needed here.
+# Fail-soft: a paused/unreachable project must not produce red runs or emails.
+name: keepalive
+on:
+  schedule:
+    - cron: "17 9,21 * * *"   # twice daily, UTC
+  workflow_dispatch:
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping Supabase REST gateway
+        run: |
+          curl -s -o /dev/null -w "supabase: HTTP %{http_code}\n" \
+            "https://tsbwrwrepxqtakpgcxqv.supabase.co/rest/v1/people?select=id&limit=1" \
+            -H "apikey: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRzYndyd3JlcHhxdGFrcGdjeHF2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODU0NDQxODYsImV4cCI6MjEwMTAyMDE4Nn0.3o-RaMUeOFbI7sE9UffIEdPAzz9FxQsnFjFJuWnR3WU" \
+            || true
